@@ -1,7 +1,10 @@
 [package]
 name = "ttl_cache"
 version = "0.1.0"
-authors = ["Stu Small <stuart.small@threat-x.com>"]
+authors = ["Stu Small <stuart.alan.small@gmail.com>"]
+description = "A cache that will expire values after a TTL"
+repository = "https://github.com/stusmall/murmur3"
+keywords = ["cache","ttl","expire"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
