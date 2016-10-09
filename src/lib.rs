@@ -126,6 +126,16 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     pub fn clear(&mut self) {
         self.map.clear();
     }
+
+    pub fn iter(&mut self) -> Iter<K, V> {
+        self.remove_expired();
+        Iter(self.map.iter())
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+        self.remove_expired();
+        IterMut(self.map.iter_mut())
+    }
 }
 
 impl<K: Eq + Hash, V, S: BuildHasher> Extend<(K, V)> for TtlCache<K, V, S> {
@@ -133,5 +143,60 @@ impl<K: Eq + Hash, V, S: BuildHasher> Extend<(K, V)> for TtlCache<K, V, S> {
         for (k, v) in iter {
             self.insert(k, v);
         }
+    }
+}
+
+pub struct Iter<'a, K: 'a, V: 'a>(linked_hash_map::Iter<'a, K, Entry<V>>);
+
+impl<'a, K, V> Clone for Iter<'a, K, V> {
+    fn clone(&self) -> Iter<'a, K, V> {
+        Iter(self.0.clone())
+    }
+}
+
+impl<'a, K, V> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+    fn next(&mut self) -> Option<(&'a K, &'a V)> {
+        self.0.next().and_then(|x| Some((x.0, &x.1.value)))
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V> {
+    fn next_back(&mut self) -> Option<(&'a K, &'a V)> {
+        self.0.next_back().and_then(|x| Some((x.0, &x.1.value)))
+    }
+}
+
+impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+pub struct IterMut<'a, K: 'a, V: 'a>(linked_hash_map::IterMut<'a, K, Entry<V>>);
+
+impl<'a, K, V> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+    fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
+        self.0.next().and_then(|mut x| Some((x.0, &mut x.1.value)))
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+
+impl<'a, K, V> DoubleEndedIterator for IterMut<'a, K, V> {
+    fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> {
+        self.0.next_back().and_then(|mut x| Some((x.0, &mut x.1.value)))
+    }
+}
+
+impl<'a, K, V> ExactSizeIterator for IterMut<'a, K, V> {
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }

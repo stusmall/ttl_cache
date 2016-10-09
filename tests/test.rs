@@ -93,3 +93,39 @@ fn test_clear() {
     assert!(cache.get_mut(&2).is_none());
     assert_eq!(cache.len(), 0);
 }
+
+#[test]
+fn test_iter() {
+    let mut cache = TtlCache::new(Duration::from_secs(60*60),3);
+    cache.insert(1, 10);
+    cache.insert(2, 20);
+    cache.insert(3, 30);
+    cache.insert(4, 40);
+    cache.insert(5, 50);
+    assert_eq!(cache.iter().collect::<Vec<_>>(),
+               [(&3, &30), (&4, &40), (&5, &50)]);
+    assert_eq!(cache.iter_mut().collect::<Vec<_>>(),
+               [(&3, &mut 30), (&4, &mut 40), (&5, &mut 50)]);
+    assert_eq!(cache.iter().rev().collect::<Vec<_>>(),
+               [(&5, &50), (&4, &40), (&3, &30)]);
+    assert_eq!(cache.iter_mut().rev().collect::<Vec<_>>(),
+               [(&5, &mut 50), (&4, &mut 40), (&3, &mut 30)]);
+}
+
+
+#[test]
+fn test_iter_w_expired() {
+    let mut cache = TtlCache::new(Duration::from_millis(100),3);
+    cache.insert(1, 10);
+    sleep(Duration::from_millis(200));
+    cache.insert(2, 20);
+    cache.insert(3, 30);
+    assert_eq!(cache.iter().collect::<Vec<_>>(),
+               [(&2, &20), (&3, &30)]);
+    assert_eq!(cache.iter_mut().collect::<Vec<_>>(),
+                [(&2, &mut 20), (&3, &mut 30)]);
+    assert_eq!(cache.iter().rev().collect::<Vec<_>>(),
+                [(&3, &30), (&2, &20)]);
+    assert_eq!(cache.iter_mut().rev().collect::<Vec<_>>(),
+               [(&3, &mut 30), (&2, &mut 20)]);
+}
