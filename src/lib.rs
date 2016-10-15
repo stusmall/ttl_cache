@@ -3,7 +3,6 @@
 //! invalid and will not be returned.
 
 extern crate linked_hash_map;
-extern crate time;
 
 use linked_hash_map::LinkedHashMap;
 use std::time::{Duration, Instant};
