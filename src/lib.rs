@@ -117,6 +117,31 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         old_val.and_then(|x| if x.is_expired() { None } else { Some(x.value) })
     }
 
+    /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key already existed and hasn't expired,
+    /// the old value is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
+    ///
+    /// cache.insert_with_ttl(1, "a", Duration::from_secs(20));
+    /// cache.insert_with_ttl(2, "b", Duration::from_secs(60));
+    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
+    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
+    /// ```
+    pub fn insert_with_ttl(&mut self, k: K, v: V, ttl: Duration) -> Option<V> {
+        let to_insert = Entry::new(v, ttl);
+        let old_val = self.map.insert(k, to_insert);
+        if self.len() > self.capacity() {
+            self.remove_oldest();
+        }
+        old_val.and_then(|x| if x.is_expired() { None } else { Some(x.value) })
+    }
+
     /// Returns a mutable reference to the value corresponding to the given key in the cache, if
     /// it contains an unexpired entry.
     ///

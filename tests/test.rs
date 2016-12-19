@@ -5,8 +5,8 @@ use std::time::Duration;
 use std::thread::sleep;
 
 #[test]
-fn test_put_and_get(){
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),2);
+fn test_put_and_get() {
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 2);
     cache.insert(1, 10);
     cache.insert(2, 20);
     assert_eq!(cache.get_mut(&1), Some(&mut 10));
@@ -15,7 +15,7 @@ fn test_put_and_get(){
 
 #[test]
 fn test_put_update() {
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),1);
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 1);
     cache.insert("1", 10);
     cache.insert("1", 19);
     assert_eq!(cache.get_mut("1"), Some(&mut 19));
@@ -23,22 +23,38 @@ fn test_put_update() {
 
 #[test]
 fn test_contains_key() {
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),1);
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 1);
     cache.insert("1", 10);
     assert_eq!(cache.contains_key("1"), true);
 }
 
 #[test]
-fn test_expire_value(){
-    let mut cache = TtlCache::new(Duration::from_millis(1),1);
+fn test_expire_value() {
+    let mut cache = TtlCache::new(Duration::from_millis(1), 1);
     cache.insert("1", 10);
     sleep(Duration::from_millis(10));
     assert_eq!(cache.contains_key("1"), false);
 }
 
 #[test]
+fn test_individual_ttl_value() {
+    let mut cache = TtlCache::new(Duration::from_millis(1), 1);
+    cache.insert_with_ttl("1", 99, Duration::from_millis(15));
+    sleep(Duration::from_millis(10));
+    assert_eq!(cache.contains_key("1"), true);
+}
+
+#[test]
+fn test_individual_ttl_expired() {
+    let mut cache = TtlCache::new(Duration::from_millis(20), 1);
+    cache.insert_with_ttl("1", 99, Duration::from_millis(5));
+    sleep(Duration::from_millis(10));
+    assert_eq!(cache.contains_key("1"), false);
+}
+
+#[test]
 fn test_pop() {
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),2);
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 2);
     cache.insert(1, 10);
     cache.insert(2, 20);
     let opt1 = cache.remove(&1);
@@ -49,7 +65,7 @@ fn test_pop() {
 
 #[test]
 fn test_change_capacity() {
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),2);
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 2);
     assert_eq!(cache.capacity(), 2);
     cache.insert(1, 10);
     cache.insert(2, 20);
@@ -60,7 +76,7 @@ fn test_change_capacity() {
 
 #[test]
 fn test_remove() {
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),3);
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 3);
     cache.insert(1, 10);
     cache.insert(2, 20);
     cache.insert(3, 30);
@@ -81,7 +97,7 @@ fn test_remove() {
 
 #[test]
 fn test_clear() {
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),2);
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 2);
     cache.insert(1, 10);
     cache.insert(2, 20);
     cache.clear();
@@ -91,7 +107,7 @@ fn test_clear() {
 
 #[test]
 fn test_iter() {
-    let mut cache = TtlCache::new(Duration::from_secs(60*60),3);
+    let mut cache = TtlCache::new(Duration::from_secs(60 * 60), 3);
     cache.insert(1, 10);
     cache.insert(2, 20);
     cache.insert(3, 30);
@@ -110,17 +126,16 @@ fn test_iter() {
 
 #[test]
 fn test_iter_w_expired() {
-    let mut cache = TtlCache::new(Duration::from_millis(100),3);
+    let mut cache = TtlCache::new(Duration::from_millis(100), 3);
     cache.insert(1, 10);
     sleep(Duration::from_millis(200));
     cache.insert(2, 20);
     cache.insert(3, 30);
-    assert_eq!(cache.iter().collect::<Vec<_>>(),
-               [(&2, &20), (&3, &30)]);
+    assert_eq!(cache.iter().collect::<Vec<_>>(), [(&2, &20), (&3, &30)]);
     assert_eq!(cache.iter_mut().collect::<Vec<_>>(),
-                [(&2, &mut 20), (&3, &mut 30)]);
+               [(&2, &mut 20), (&3, &mut 30)]);
     assert_eq!(cache.iter().rev().collect::<Vec<_>>(),
-                [(&3, &30), (&2, &20)]);
+               [(&3, &30), (&2, &20)]);
     assert_eq!(cache.iter_mut().rev().collect::<Vec<_>>(),
                [(&3, &mut 30), (&2, &mut 20)]);
 }
