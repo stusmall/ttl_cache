@@ -1,6 +1,6 @@
 [package]
 name = "ttl_cache"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Stu Small <stuart.alan.small@gmail.com>"]
 description = "A cache that will expire values after a TTL"
 repository = "https://github.com/stusmall/ttl_cache"
@@ -9,4 +9,4 @@ keywords = ["cache","ttl","expire"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
-linked-hash-map = "0.3"
+linked-hash-map = "0.4"

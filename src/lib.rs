@@ -1,6 +1,6 @@
-//! This crate provides a time sensitive key-value FIFO cache.  When the cache is created it is
-//! given a TTL.  Any value that are in the cache for longer than this duration are considered
-//! invalid and will not be returned.
+//! This crate provides a time sensitive key-value cache.  When an item is inserted it is
+//! given a TTL.  Any value that are in the cache after their duration are considered invalid
+//! and will not be returned on lookups.
 
 extern crate linked_hash_map;
 
@@ -36,12 +36,10 @@ impl<V> Entry<V> {
 pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
     map: LinkedHashMap<K, Entry<V>, S>,
     max_size: usize,
-    duration: Duration,
 }
 
 impl<K: Eq + Hash, V> TtlCache<K, V> {
-    /// Creates an empty cache that can hold at most `capacity` items and will expire them
-    /// after `duration`
+    /// Creates an empty cache that can hold at most `capacity` items.
     ///
     /// # Examples
     ///
@@ -49,13 +47,12 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache: TtlCache<i32, &str> = TtlCache::new(Duration::from_secs(30), 10);
+    /// let mut cache: TtlCache<i32, &str> = TtlCache::new(10);
     /// ```
-    pub fn new(duration: Duration, capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         TtlCache {
             map: LinkedHashMap::new(),
             max_size: capacity,
-            duration: duration,
         }
     }
 }
@@ -63,11 +60,10 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
 impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// Creates an empty cache that can hold at most `capacity` items
     /// that expire after `duration` with the given hash builder.
-    pub fn with_hasher(duration: Duration, capacity: usize, hash_builder: S) -> Self {
+    pub fn with_hasher(capacity: usize, hash_builder: S) -> Self {
         TtlCache {
             map: LinkedHashMap::with_hasher(hash_builder),
             max_size: capacity,
-            duration: duration,
         }
     }
 
@@ -78,8 +74,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 10);
-    /// cache.insert(1,"a");
+    /// let mut cache = TtlCache::new(10);
+    /// cache.insert(1,"a", Duration::from_secs(30));
     /// assert_eq!(cache.contains_key(&1), true);
     /// ```
     pub fn contains_key<Q: ?Sized>(&mut self, key: &Q) -> bool
@@ -91,32 +87,6 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     }
 
 
-
-    /// Inserts a key-value pair into the cache. If the key already existed and hasn't expired,
-    /// the old value is returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    /// use ttl_cache::TtlCache;
-    ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
-    ///
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// ```
-    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let to_insert = Entry::new(v, self.duration);
-        let old_val = self.map.insert(k, to_insert);
-        if self.len() > self.capacity() {
-            self.remove_oldest();
-        }
-        old_val.and_then(|x| if x.is_expired() { None } else { Some(x.value) })
-    }
-
     /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key already existed and hasn't expired,
     /// the old value is returned.
     ///
@@ -126,14 +96,14 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
+    /// let mut cache = TtlCache::new(2);
     ///
-    /// cache.insert_with_ttl(1, "a", Duration::from_secs(20));
-    /// cache.insert_with_ttl(2, "b", Duration::from_secs(60));
+    /// cache.insert(1, "a", Duration::from_secs(20));
+    /// cache.insert(2, "b", Duration::from_secs(60));
     /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
     /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
     /// ```
-    pub fn insert_with_ttl(&mut self, k: K, v: V, ttl: Duration) -> Option<V> {
+    pub fn insert(&mut self, k: K, v: V, ttl: Duration) -> Option<V> {
         let to_insert = Entry::new(v, ttl);
         let old_val = self.map.insert(k, to_insert);
         if self.len() > self.capacity() {
@@ -151,12 +121,13 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
+    /// let mut cache = TtlCache::new(2);
+    /// let duration = Duration::from_secs(30);
     ///
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    /// cache.insert(2, "c");
-    /// cache.insert(3, "d");
+    /// cache.insert(1, "a", duration);
+    /// cache.insert(2, "b", duration);
+    /// cache.insert(2, "c", duration);
+    /// cache.insert(3, "d", duration);
     ///
     /// assert_eq!(cache.get_mut(&1), None);
     /// assert_eq!(cache.get_mut(&2), Some(&mut "c"));
@@ -165,12 +136,10 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         where K: Borrow<Q>,
               Q: Hash + Eq
     {
-        self.map.get_mut(k).and_then(|mut x| {
-            if x.is_expired() {
-                None
-            } else {
-                Some(&mut x.value)
-            }
+        self.map.get_mut(k).and_then(|mut x| if x.is_expired() {
+            None
+        } else {
+            Some(&mut x.value)
         })
     }
 
@@ -183,9 +152,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
+    /// let mut cache = TtlCache::new(2);
     ///
-    /// cache.insert(2, "a");
+    /// cache.insert(2, "a", Duration::from_secs(30));
     ///
     /// assert_eq!(cache.remove(&1), None);
     /// assert_eq!(cache.remove(&2), Some("a"));
@@ -207,7 +176,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache: TtlCache<i32, &str> = TtlCache::new(Duration::from_secs(30), 2);
+    /// let mut cache: TtlCache<i32, &str> = TtlCache::new(2);
     /// assert_eq!(cache.capacity(), 2);
     /// ```
     pub fn capacity(&self) -> usize {
@@ -224,19 +193,20 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
+    /// let mut cache = TtlCache::new(2);
+    /// let duration = Duration::from_secs(30);
     ///
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
-    /// cache.insert(3, "c");
+    /// cache.insert(1, "a", duration);
+    /// cache.insert(2, "b", duration);
+    /// cache.insert(3, "c", duration);
     ///
     /// assert_eq!(cache.get_mut(&1), None);
     /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
     /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
     ///
     /// cache.set_capacity(3);
-    /// cache.insert(1, "a");
-    /// cache.insert(2, "b");
+    /// cache.insert(1, "a", duration);
+    /// cache.insert(2, "b", duration);
     ///
     /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
     /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
@@ -268,11 +238,12 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
+    /// let mut cache = TtlCache::new(2);
+    /// let duration = Duration::from_secs(30);
     ///
-    /// cache.insert(1, 10);
-    /// cache.insert(2, 20);
-    /// cache.insert(3, 30);
+    /// cache.insert(1, 10, duration);
+    /// cache.insert(2, 20, duration);
+    /// cache.insert(3, 30, duration);
     ///
     /// let kvs: Vec<_> = cache.iter().collect();
     /// assert_eq!(kvs, [(&2, &20), (&3, &30)]);
@@ -292,11 +263,12 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
-    /// let mut cache = TtlCache::new(Duration::from_secs(30), 2);
+    /// let mut cache = TtlCache::new(2);
+    /// let duration = Duration::from_secs(30);
     ///
-    /// cache.insert(1, 10);
-    /// cache.insert(2, 20);
-    /// cache.insert(3, 30);
+    /// cache.insert(1, 10, duration);
+    /// cache.insert(2, 20, duration);
+    /// cache.insert(3, 30, duration);
     ///
     /// let mut n = 2;
     ///
@@ -325,11 +297,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     }
 
     fn remove_expired(&mut self) {
-        let should_pop_head = |map: &LinkedHashMap<K, Entry<V>, S>| {
-            match map.front() {
-                Some(entry) => entry.1.is_expired(),
-                None => false,
-            }
+        let should_pop_head = |map: &LinkedHashMap<K, Entry<V>, S>| match map.front() {
+            Some(entry) => entry.1.is_expired(),
+            None => false,
         };
         while should_pop_head(&self.map) {
             self.map.pop_front();
@@ -338,14 +308,6 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
 
     fn remove_oldest(&mut self) -> Option<(K, V)> {
         self.map.pop_front().map(|x| (x.0, x.1.value))
-    }
-}
-
-impl<K: Eq + Hash, V, S: BuildHasher> Extend<(K, V)> for TtlCache<K, V, S> {
-    fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
-        for (k, v) in iter {
-            self.insert(k, v);
-        }
     }
 }
 
