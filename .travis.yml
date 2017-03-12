@@ -8,6 +8,4 @@ rust:
   - 1.14.0
   - 1.15.0
   - 1.15.1
-  - nightly
-  - beta
   - stable
