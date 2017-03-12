@@ -4,11 +4,12 @@
 
 extern crate linked_hash_map;
 
-use linked_hash_map::LinkedHashMap;
-use std::time::{Duration, Instant};
-use std::hash::{Hash, BuildHasher};
-use std::collections::hash_map::RandomState;
 use std::borrow::Borrow;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hash};
+use std::time::{Duration, Instant};
+
+use linked_hash_map::LinkedHashMap;
 
 #[derive(Clone)]
 struct Entry<V> {
@@ -29,13 +30,14 @@ impl<V> Entry<V> {
     }
 }
 
-
-
 /// A time sensitive cache.
 #[derive(Clone)]
 pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
     map: LinkedHashMap<K, Entry<V>, S>,
     max_size: usize,
+    hits: i32,
+    misses: i32,
+    since: Instant,
 }
 
 impl<K: Eq + Hash, V> TtlCache<K, V> {
@@ -53,6 +55,9 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
         TtlCache {
             map: LinkedHashMap::new(),
             max_size: capacity,
+            hits: 0,
+            misses: 0,
+            since: Instant::now(),
         }
     }
 }
@@ -64,6 +69,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         TtlCache {
             map: LinkedHashMap::with_hasher(hash_builder),
             max_size: capacity,
+            hits: 0,
+            misses: 0,
+            since: Instant::now(),
         }
     }
 
@@ -83,12 +91,18 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
               Q: Hash + Eq
     {
         // Expiration check is handled by get_mut
-        self.get_mut(key).is_some()
+        let to_ret = self.get_mut(key).is_some();
+        if to_ret {
+            self.hits = self.hits.saturating_add(1);
+        } else {
+            self.misses = self.misses.saturating_add(1);
+        }
+        to_ret
     }
 
 
-    /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key already existed and hasn't expired,
-    /// the old value is returned.
+    /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key
+    /// already existed and hasn't expired, the old value is returned.
     ///
     /// # Examples
     ///
@@ -136,11 +150,18 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         where K: Borrow<Q>,
               Q: Hash + Eq
     {
-        self.map.get_mut(k).and_then(|mut x| if x.is_expired() {
+        let to_ret = self.map.get_mut(k).and_then(|mut x| if x.is_expired() {
             None
         } else {
             Some(&mut x.value)
-        })
+        });
+        if to_ret.is_some() {
+            self.hits = self.hits.saturating_add(1);
+        } else {
+            self.misses = self.misses.saturating_add(1);
+        }
+        to_ret
+
     }
 
 
@@ -286,6 +307,81 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     pub fn iter_mut(&mut self) -> IterMut<K, V> {
         self.remove_expired();
         IterMut(self.map.iter_mut())
+    }
+
+    /// The cache will keep track of some basic stats during its usage that can be helpful
+    /// for performance tuning or monitoring.  This method will reset these counters.
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread::sleep;
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    ///
+    /// cache.insert(1, "a", Duration::from_secs(20));
+    /// cache.insert(2, "b", Duration::from_millis(1));
+    /// sleep(Duration::from_millis(10));
+    /// let _ = cache.get_mut(&1);
+    /// let _ = cache.get_mut(&2);
+    /// let _ = cache.get_mut(&3);
+    /// assert_eq!(cache.miss_count(), 2);
+    /// cache.reset_stats_counter();
+    /// assert_eq!(cache.miss_count(), 0);
+    pub fn reset_stats_counter(&mut self) {
+        self.hits = 0;
+        self.misses = 0;
+        self.since = Instant::now();
+    }
+
+    /// Returns the number of unexpired cache hits since the last time the counters were reset.
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread::sleep;
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    ///
+    /// cache.insert(1, "a", Duration::from_secs(20));
+    /// cache.insert(2, "b", Duration::from_millis(1));
+    /// sleep(Duration::from_millis(10));
+    /// let _ = cache.get_mut(&1);
+    /// let _ = cache.get_mut(&2);
+    /// let _ = cache.get_mut(&3);
+    /// assert_eq!(cache.hit_count(), 1);
+    pub fn hit_count(&self) -> i32 {
+        self.hits
+    }
+
+    /// Returns the number of cache misses since the last time the counters were reset.  Entries 
+    /// that have expired count as a miss.
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread::sleep;
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    ///
+    /// cache.insert(1, "a", Duration::from_secs(20));
+    /// cache.insert(2, "b", Duration::from_millis(1));
+    /// sleep(Duration::from_millis(10));
+    /// let _ = cache.get_mut(&1);
+    /// let _ = cache.get_mut(&2);
+    /// let _ = cache.get_mut(&3);
+    /// assert_eq!(cache.miss_count(), 2);
+    pub fn miss_count(&self) -> i32 {
+        self.misses
+    }
+
+    /// Returns the Instant when we started gathering stats.  This is either when the cache was
+    /// created or when it was last reset, whichever happened most recently.
+    pub fn stats_since(&self) -> Instant {
+        self.since
     }
 
     // This isn't made pubic because the length returned isn't exact. It can include expired values.
