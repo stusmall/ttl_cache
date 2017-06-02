@@ -384,14 +384,61 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         self.since
     }
 
-    // This isn't made pubic because the length returned isn't exact. It can include expired values.
-    // If people find that they want this then I can include a length method that trims expired
-    // entries then returns the size, but I'd rather now.  One wouldn't expect a len() operation
-    // to change the contents of the structure.
-    fn len(&self) -> usize {
+    /// Returns the physical number of cache entries. This operation is fast but might return an unexpected
+    /// size, as it returns the real number of entries inside the cache, including those that have already
+    /// expired. If you're looking for the number of entries in the cache excluding those that have been
+    /// expired, use the more expensive [`count()`] instead.
+    ///
+    /// [`count()`]: #method.count
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread::sleep;
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    ///
+    /// cache.insert(1, "a", Duration::from_secs(20));
+    /// cache.insert(2, "b", Duration::from_millis(1));
+    /// sleep(Duration::from_millis(10));
+    /// assert_eq!(cache.len(), 2);
+    pub fn len(&self) -> usize {
         self.map.len()
     }
 
+    /// Returns the logical number of cache entries. This operation is expensive, as it actively removes
+    /// expired entries from the cache and then returns the number of entries left. This operation modifies
+    /// your cache. If possible, avoid using it. If you're looking for the number of entries inside the cache
+    /// including  those that have been expired, use the less expensive [`len()`] instead.
+    ///
+    /// Note: The result of this method is unreliable as well when using non-constant ttl. Do not use this
+    /// method unless you set the same ttl for every entry.
+    ///
+    /// [`len()`]: #method.len
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread::sleep;
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    ///
+    /// cache.insert(1, "a", Duration::from_millis(1));
+    /// cache.insert(2, "b", Duration::from_secs(20));
+    /// sleep(Duration::from_millis(10));
+    /// assert_eq!(cache.count(), 1);
+    pub fn count(&mut self) -> usize {
+        self.remove_expired();
+        self.map.len()
+    }
+
+    // Note: this doesn't work correctly when using non-constant ttl.
+    //
+    // calling remove_expired on [valid, expired, valid] does not remove the expired key.
     fn remove_expired(&mut self) {
         let should_pop_head = |map: &LinkedHashMap<K, Entry<V>, S>| match map.front() {
             Some(entry) => entry.1.is_expired(),
