@@ -400,8 +400,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     ///
     /// let mut cache = TtlCache::new(2);
     ///
-    /// cache.insert(1, "a", Duration::from_secs(20));
-    /// cache.insert(2, "b", Duration::from_millis(1));
+    /// cache.insert(1, "a", Duration::from_millis(1));
+    /// cache.insert(2, "b", Duration::from_secs(20));
     /// sleep(Duration::from_millis(10));
     /// assert_eq!(cache.len(), 2);
     pub fn len(&self) -> usize {
