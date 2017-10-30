@@ -12,6 +12,8 @@ fn test_put_and_get() {
     cache.insert(2, 20, duration);
     assert_eq!(cache.get_mut(&1), Some(&mut 10));
     assert_eq!(cache.get_mut(&2), Some(&mut 20));
+    assert_eq!(cache.get(&1), Some(&10));
+    assert_eq!(cache.get(&2), Some(&20));
 }
 
 #[test]
@@ -24,20 +26,12 @@ fn test_put_update() {
 }
 
 #[test]
-fn test_contains_key() {
-    let duration = Duration::from_secs(60 * 60);
-    let mut cache = TtlCache::new(1);
-    cache.insert("1", 10, duration);
-    assert_eq!(cache.contains_key("1"), true);
-}
-
-#[test]
 fn test_expire_value() {
     let duration = Duration::from_millis(1);
     let mut cache = TtlCache::new(1);
     cache.insert("1", 10, duration);
     sleep(Duration::from_millis(10));
-    assert_eq!(cache.contains_key("1"), false);
+    assert_eq!(cache.get("1"), None);
 }
 
 #[test]
@@ -142,5 +136,15 @@ fn test() {
     cache.insert(3, 30, Duration::from_millis(300));
     sleep(Duration::from_millis(20));
     assert_eq!(cache.iter().collect::<Vec<_>>(), [(&1, &10), (&3, &30)]);
+}
 
+#[test]
+fn renewal_moves_to_end() {
+    let mut cache = TtlCache::new(3);
+    cache.insert(1,1, Duration::from_millis(300));
+    cache.insert(2,1, Duration::from_millis(300));
+    cache.renew(&1, Duration::from_millis(300));
+    let mut i = cache.iter();
+    assert_eq!(i.next(), Some((&2,&1)));
+    assert_eq!(i.next(), Some((&1,&1)));
 }

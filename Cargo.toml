@@ -1,7 +1,7 @@
 [package]
 name = "ttl_cache"
 version = "0.3.0"
-authors = ["Stu Small <stuart.alan.small@gmail.com>"]
+authors = ["Stu Small <stuart.alan.small@gmail.com>", "Kalle Samuels <ks@ks.ax>"]
 description = "A cache that will expire values after a TTL"
 repository = "https://github.com/stusmall/ttl_cache"
 documentation = "https://docs.rs/ttl_cache/"
