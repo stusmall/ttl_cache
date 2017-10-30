@@ -5,6 +5,7 @@
 extern crate linked_hash_map;
 
 use std::borrow::Borrow;
+use std::cell::Cell;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash};
 use std::time::{Duration, Instant};
@@ -14,19 +15,23 @@ use linked_hash_map::LinkedHashMap;
 #[derive(Clone)]
 struct Entry<V> {
     value: V,
-    expiration: Instant,
+    expiration: Cell<Instant>,
 }
 
 impl<V> Entry<V> {
     fn new(v: V, duration: Duration) -> Self {
         Entry {
             value: v,
-            expiration: Instant::now() + duration,
+            expiration: Cell::new(Instant::now() + duration),
         }
     }
 
+    fn renew(&self, duration: Duration) {
+        self.expiration.replace(Instant::now() + duration);
+    }
+
     fn is_expired(&self) -> bool {
-        Instant::now() > self.expiration
+        Instant::now() > self.expiration.get()
     }
 }
 
@@ -35,8 +40,8 @@ impl<V> Entry<V> {
 pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
     map: LinkedHashMap<K, Entry<V>, S>,
     max_size: usize,
-    hits: i32,
-    misses: i32,
+    hits: Cell<i32>,
+    misses: Cell<i32>,
     since: Instant,
 }
 
@@ -55,8 +60,8 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
         TtlCache {
             map: LinkedHashMap::new(),
             max_size: capacity,
-            hits: 0,
-            misses: 0,
+            hits: Cell::new(0),
+            misses: Cell::new(0),
             since: Instant::now(),
         }
     }
@@ -69,8 +74,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         TtlCache {
             map: LinkedHashMap::with_hasher(hash_builder),
             max_size: capacity,
-            hits: 0,
-            misses: 0,
+            hits: Cell::new(0),
+            misses: Cell::new(0),
             since: Instant::now(),
         }
     }
@@ -124,20 +129,89 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         where K: Borrow<Q>,
               Q: Hash + Eq
     {
-        let to_ret = self.map.get_mut(k).and_then(|mut x| if x.is_expired() {
+        let to_ret = self.map.get_mut(k).and_then(|x| if x.is_expired() {
             None
         } else {
             Some(&mut x.value)
         });
         if to_ret.is_some() {
-            self.hits = self.hits.saturating_add(1);
+            self.hits.set(self.hits.get().saturating_add(1));
         } else {
-            self.misses = self.misses.saturating_add(1);
+            self.misses.set(self.misses.get().saturating_add(1));
         }
         to_ret
 
     }
 
+    /// Returns a non-mutable reference to the value corresponding to the given key in the cache, if
+    /// it contains an unexpired entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    /// let duration = Duration::from_secs(30);
+    ///
+    /// cache.insert(1, "a", duration);
+    /// cache.insert(2, "b", duration);
+    /// cache.insert(2, "c", duration);
+    /// cache.insert(3, "d", duration);
+    ///
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"c"));
+    /// ```
+    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+        where K: Borrow<Q>,
+              Q: Hash + Eq
+    {
+        let to_ret = self.map.get(k).and_then(|x| if x.borrow().is_expired() {
+            None
+        } else {
+            Some(&x.value)
+        });
+        if to_ret.is_some() {
+            self.hits.set(self.hits.take().saturating_add(1));
+        } else {
+            self.misses.set(self.misses.take().saturating_add(1));
+        }
+        to_ret
+    }
+
+    /// Renews the liveness of this item in the cache.
+    ///
+    /// Does not check if the item has already expired. This should be called *after*
+    /// having called [`get`] or [`get_mut`], which will, so as long as there have
+    /// been no changes to this cache since then, prevent the item from being timed out
+    /// until the new duration passes.
+    ///
+    /// Does nothing if the key does not exist.
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread::sleep;
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    ///
+    /// cache.insert(1, "a", Duration::from_millis(10));
+    /// cache.insert(2, "b", Duration::from_millis(10));
+    /// sleep(Duration::from_millis(20));
+    /// cache.renew(&2, Duration::from_millis(20));
+    ///
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// ```
+    pub fn renew<Q: ?Sized>(&mut self, k: &Q, ttl: Duration)
+        where K: Borrow<Q>,
+              Q: Hash + Eq {
+        if let Some(x) = self.map.get_refresh(k) {
+            x.renew(ttl);
+        }
+    }
 
     /// Removes the given key from the cache and returns its corresponding value.
     ///
@@ -195,23 +269,23 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.insert(2, "b", duration);
     /// cache.insert(3, "c", duration);
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_capacity(3);
     /// cache.insert(1, "a", duration);
     /// cache.insert(2, "b", duration);
     ///
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), Some(&"a"));
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_capacity(1);
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), None);
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), None);
     /// ```
     pub fn set_capacity(&mut self, capacity: usize) {
         for _ in capacity..self.len() {
@@ -226,6 +300,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     }
 
     /// Returns an iterator over the cache's key-value pairs in oldest to youngest order.
+    /// The renewal of an item moves it to the end of the iterator.
+    ///
     ///
     /// # Examples
     ///
@@ -243,13 +319,12 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// let kvs: Vec<_> = cache.iter().collect();
     /// assert_eq!(kvs, [(&2, &20), (&3, &30)]);
     /// ```
-    pub fn iter(&mut self) -> Iter<K, V> {
-        self.remove_expired();
+    pub fn iter(&self) -> Iter<K, V> {
         Iter(self.map.iter())
     }
 
     /// Returns an iterator over the cache's key-value pairs in oldest to youngest order with
-    /// mutable references to the values.
+    /// mutable references to the values. The renewal of an item moves it to the end of the iterator.
     ///
     ///
     /// # Examples
@@ -275,8 +350,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// }
     ///
     /// assert_eq!(n, 4);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut 200));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut 300));
+    /// assert_eq!(cache.get(&2), Some(&200));
+    /// assert_eq!(cache.get(&3), Some(&300));
     /// ```
     pub fn iter_mut(&mut self) -> IterMut<K, V> {
         self.remove_expired();
@@ -304,8 +379,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.reset_stats_counter();
     /// assert_eq!(cache.miss_count(), 0);
     pub fn reset_stats_counter(&mut self) {
-        self.hits = 0;
-        self.misses = 0;
+        self.hits.set(0);
+        self.misses.set(0);
         self.since = Instant::now();
     }
 
@@ -327,7 +402,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// let _ = cache.get_mut(&3);
     /// assert_eq!(cache.hit_count(), 1);
     pub fn hit_count(&self) -> i32 {
-        self.hits
+        self.hits.get()
     }
 
     /// Returns the number of cache misses since the last time the counters were reset.  Entries 
@@ -349,7 +424,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// let _ = cache.get_mut(&3);
     /// assert_eq!(cache.miss_count(), 2);
     pub fn miss_count(&self) -> i32 {
-        self.misses
+        self.misses.get()
     }
 
     /// Returns the Instant when we started gathering stats.  This is either when the cache was
@@ -414,12 +489,12 @@ impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V> {
     fn next_back(&mut self) -> Option<(&'a K, &'a V)> {
         match self.0.next_back() {
             Some(entry) => {
-                if entry.1.is_expired() {
+                if entry.1.borrow().is_expired() {
                     // The entries are in order of time.  So if the previous entry is expired, every
                     // else before it will be expired too.
                     None
                 } else {
-                    Some((entry.0, &entry.1.value))
+                    Some((entry.0, &entry.1.borrow().value))
                 }
             }
             None => None,
@@ -434,7 +509,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
     fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
         match self.0.next() {
-            Some(mut entry) => {
+            Some(entry) => {
                 if entry.1.is_expired() {
                     self.next()
                 } else {
@@ -453,7 +528,7 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
 impl<'a, K, V> DoubleEndedIterator for IterMut<'a, K, V> {
     fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> {
         match self.0.next_back() {
-            Some(mut entry) => {
+            Some(entry) => {
                 if entry.1.is_expired() {
                     None
                 } else {
