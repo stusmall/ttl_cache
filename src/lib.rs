@@ -64,7 +64,7 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
 
 impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// Creates an empty cache that can hold at most `capacity` items
-    /// that expire after `duration` with the given hash builder.
+    /// with the given hash builder.
     pub fn with_hasher(capacity: usize, hash_builder: S) -> Self {
         TtlCache {
             map: LinkedHashMap::with_hasher(hash_builder),
@@ -74,32 +74,6 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
             since: Instant::now(),
         }
     }
-
-    /// Check if the cache contains the given key.
-    ///
-    /// # Examples
-    /// ```
-    /// use std::time::Duration;
-    /// use ttl_cache::TtlCache;
-    ///
-    /// let mut cache = TtlCache::new(10);
-    /// cache.insert(1,"a", Duration::from_secs(30));
-    /// assert_eq!(cache.contains_key(&1), true);
-    /// ```
-    pub fn contains_key<Q: ?Sized>(&mut self, key: &Q) -> bool
-        where K: Borrow<Q>,
-              Q: Hash + Eq
-    {
-        // Expiration check is handled by get_mut
-        let to_ret = self.get_mut(key).is_some();
-        if to_ret {
-            self.hits = self.hits.saturating_add(1);
-        } else {
-            self.misses = self.misses.saturating_add(1);
-        }
-        to_ret
-    }
-
 
     /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key
     /// already existed and hasn't expired, the old value is returned.
