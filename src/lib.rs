@@ -5,6 +5,7 @@
 extern crate linked_hash_map;
 
 use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash};
 use std::time::{Duration, Instant};
@@ -35,8 +36,8 @@ impl<V> Entry<V> {
 pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
     map: LinkedHashMap<K, Entry<V>, S>,
     max_size: usize,
-    hits: i32,
-    misses: i32,
+    hits: RefCell<u32>,
+    misses: RefCell<u32>,
     since: Instant,
 }
 
@@ -55,8 +56,8 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
         TtlCache {
             map: LinkedHashMap::new(),
             max_size: capacity,
-            hits: 0,
-            misses: 0,
+            hits: RefCell::new(0),
+            misses: RefCell::new(0),
             since: Instant::now(),
         }
     }
@@ -69,8 +70,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         TtlCache {
             map: LinkedHashMap::with_hasher(hash_builder),
             max_size: capacity,
-            hits: 0,
-            misses: 0,
+            hits: RefCell::new(0),
+            misses: RefCell::new(0),
             since: Instant::now(),
         }
     }
@@ -87,19 +88,19 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.contains_key(&1), true);
     /// ```
     pub fn contains_key<Q: ?Sized>(&mut self, key: &Q) -> bool
-        where K: Borrow<Q>,
-              Q: Hash + Eq
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
     {
         // Expiration check is handled by get_mut
         let to_ret = self.get_mut(key).is_some();
         if to_ret {
-            self.hits = self.hits.saturating_add(1);
+            self.hits.borrow_mut().saturating_add(1);
         } else {
-            self.misses = self.misses.saturating_add(1);
+            self.misses.borrow_mut().saturating_add(1);
         }
         to_ret
     }
-
 
     /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key
     /// already existed and hasn't expired, the old value is returned.
@@ -126,6 +127,44 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         old_val.and_then(|x| if x.is_expired() { None } else { Some(x.value) })
     }
 
+    /// Returns a reference to the value corresponding to the given key in the cache, if
+    /// it contains an unexpired entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut cache = TtlCache::new(2);
+    /// let duration = Duration::from_secs(30);
+    ///
+    /// cache.insert(1, "a", duration);
+    /// cache.insert(2, "b", duration);
+    /// cache.insert(2, "c", duration);
+    /// cache.insert(3, "d", duration);
+    ///
+    /// assert_eq!(cache.get_mut(&1), None);
+    /// assert_eq!(cache.get_mut(&2), Some(&mut "c"));
+    /// ```
+    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        let to_ret = self.map
+            .get(k)
+            .and_then(|x| if x.is_expired() { None } else { Some(&x.value) });
+        if to_ret.is_some() {
+            let mut x = self.hits.borrow_mut();
+            (*x) += 1;
+        } else {
+            let mut x = self.misses.borrow_mut();
+            (*x) += 1;
+        }
+        to_ret
+    }
+
     /// Returns a mutable reference to the value corresponding to the given key in the cache, if
     /// it contains an unexpired entry.
     ///
@@ -147,23 +186,26 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.get_mut(&2), Some(&mut "c"));
     /// ```
     pub fn get_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
-        where K: Borrow<Q>,
-              Q: Hash + Eq
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
     {
-        let to_ret = self.map.get_mut(k).and_then(|mut x| if x.is_expired() {
-            None
-        } else {
-            Some(&mut x.value)
+        let to_ret = self.map.get_mut(k).and_then(|x| {
+            if x.is_expired() {
+                None
+            } else {
+                Some(&mut x.value)
+            }
         });
         if to_ret.is_some() {
-            self.hits = self.hits.saturating_add(1);
+            let mut x = self.hits.borrow_mut();
+            (*x) += 1;
         } else {
-            self.misses = self.misses.saturating_add(1);
+            let mut x = self.misses.borrow_mut();
+            (*x) += 1;
         }
         to_ret
-
     }
-
 
     /// Removes the given key from the cache and returns its corresponding value.
     ///
@@ -182,12 +224,14 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.remove(&2), None);
     /// ```
     pub fn remove<Q: ?Sized>(&mut self, k: &Q) -> Option<V>
-        where K: Borrow<Q>,
-              Q: Hash + Eq
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
     {
-        self.map.remove(k).and_then(|x| if x.is_expired() { None } else { Some(x.value) })
+        self.map
+            .remove(k)
+            .and_then(|x| if x.is_expired() { None } else { Some(x.value) })
     }
-
 
     /// Returns the maximum number of key-value pairs the cache can hold.
     ///
@@ -203,7 +247,6 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     pub fn capacity(&self) -> usize {
         self.max_size
     }
-
 
     /// Sets the number of key-value pairs the cache can hold. Removes
     /// oldest key-value pairs if necessary.
@@ -330,8 +373,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.reset_stats_counter();
     /// assert_eq!(cache.miss_count(), 0);
     pub fn reset_stats_counter(&mut self) {
-        self.hits = 0;
-        self.misses = 0;
+        *self.hits.borrow_mut() = 0;
+        *self.misses.borrow_mut() = 0;
         self.since = Instant::now();
     }
 
@@ -348,15 +391,15 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.insert(1, "a", Duration::from_secs(20));
     /// cache.insert(2, "b", Duration::from_millis(1));
     /// sleep(Duration::from_millis(10));
-    /// let _ = cache.get_mut(&1);
-    /// let _ = cache.get_mut(&2);
-    /// let _ = cache.get_mut(&3);
+    /// assert!(cache.get_mut(&1).is_some());
+    /// assert!(cache.get_mut(&2).is_none());
+    /// assert!(cache.get_mut(&3).is_none());
     /// assert_eq!(cache.hit_count(), 1);
-    pub fn hit_count(&self) -> i32 {
-        self.hits
+    pub fn hit_count(&self) -> u32 {
+        *self.hits.borrow()
     }
 
-    /// Returns the number of cache misses since the last time the counters were reset.  Entries 
+    /// Returns the number of cache misses since the last time the counters were reset.  Entries
     /// that have expired count as a miss.
     /// # Examples
     ///
@@ -374,8 +417,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// let _ = cache.get_mut(&2);
     /// let _ = cache.get_mut(&3);
     /// assert_eq!(cache.miss_count(), 2);
-    pub fn miss_count(&self) -> i32 {
-        self.misses
+    pub fn miss_count(&self) -> u32 {
+        *self.misses.borrow()
     }
 
     /// Returns the Instant when we started gathering stats.  This is either when the cache was
@@ -453,14 +496,13 @@ impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V> {
     }
 }
 
-
 pub struct IterMut<'a, K: 'a, V: 'a>(linked_hash_map::IterMut<'a, K, Entry<V>>);
 
 impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
     fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
         match self.0.next() {
-            Some(mut entry) => {
+            Some(entry) => {
                 if entry.1.is_expired() {
                     self.next()
                 } else {
@@ -475,11 +517,10 @@ impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     }
 }
 
-
 impl<'a, K, V> DoubleEndedIterator for IterMut<'a, K, V> {
     fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> {
         match self.0.next_back() {
-            Some(mut entry) => {
+            Some(entry) => {
                 if entry.1.is_expired() {
                     None
                 } else {

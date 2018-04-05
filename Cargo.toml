@@ -9,4 +9,4 @@ keywords = ["cache","ttl","expire"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
-linked-hash-map = "0.4"
+linked-hash-map = "0.5"

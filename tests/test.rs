@@ -1,8 +1,8 @@
 extern crate ttl_cache;
 
-use ttl_cache::TtlCache;
-use std::time::Duration;
 use std::thread::sleep;
+use std::time::Duration;
+use ttl_cache::TtlCache;
 
 #[test]
 fn test_put_and_get() {
@@ -106,16 +106,23 @@ fn test_iter() {
     cache.insert(3, 30, duration);
     cache.insert(4, 40, duration);
     cache.insert(5, 50, duration);
-    assert_eq!(cache.iter().collect::<Vec<_>>(),
-               [(&3, &30), (&4, &40), (&5, &50)]);
-    assert_eq!(cache.iter_mut().collect::<Vec<_>>(),
-               [(&3, &mut 30), (&4, &mut 40), (&5, &mut 50)]);
-    assert_eq!(cache.iter().rev().collect::<Vec<_>>(),
-               [(&5, &50), (&4, &40), (&3, &30)]);
-    assert_eq!(cache.iter_mut().rev().collect::<Vec<_>>(),
-               [(&5, &mut 50), (&4, &mut 40), (&3, &mut 30)]);
+    assert_eq!(
+        cache.iter().collect::<Vec<_>>(),
+        [(&3, &30), (&4, &40), (&5, &50)]
+    );
+    assert_eq!(
+        cache.iter_mut().collect::<Vec<_>>(),
+        [(&3, &mut 30), (&4, &mut 40), (&5, &mut 50)]
+    );
+    assert_eq!(
+        cache.iter().rev().collect::<Vec<_>>(),
+        [(&5, &50), (&4, &40), (&3, &30)]
+    );
+    assert_eq!(
+        cache.iter_mut().rev().collect::<Vec<_>>(),
+        [(&5, &mut 50), (&4, &mut 40), (&3, &mut 30)]
+    );
 }
-
 
 #[test]
 fn test_iter_w_expired() {
@@ -126,12 +133,18 @@ fn test_iter_w_expired() {
     cache.insert(2, 20, duration);
     cache.insert(3, 30, duration);
     assert_eq!(cache.iter().collect::<Vec<_>>(), [(&2, &20), (&3, &30)]);
-    assert_eq!(cache.iter_mut().collect::<Vec<_>>(),
-               [(&2, &mut 20), (&3, &mut 30)]);
-    assert_eq!(cache.iter().rev().collect::<Vec<_>>(),
-               [(&3, &30), (&2, &20)]);
-    assert_eq!(cache.iter_mut().rev().collect::<Vec<_>>(),
-               [(&3, &mut 30), (&2, &mut 20)]);
+    assert_eq!(
+        cache.iter_mut().collect::<Vec<_>>(),
+        [(&2, &mut 20), (&3, &mut 30)]
+    );
+    assert_eq!(
+        cache.iter().rev().collect::<Vec<_>>(),
+        [(&3, &30), (&2, &20)]
+    );
+    assert_eq!(
+        cache.iter_mut().rev().collect::<Vec<_>>(),
+        [(&3, &mut 30), (&2, &mut 20)]
+    );
 }
 
 #[test]
@@ -142,5 +155,4 @@ fn test() {
     cache.insert(3, 30, Duration::from_millis(300));
     sleep(Duration::from_millis(20));
     assert_eq!(cache.iter().collect::<Vec<_>>(), [(&1, &10), (&3, &30)]);
-
 }
