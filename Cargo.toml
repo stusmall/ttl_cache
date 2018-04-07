@@ -10,3 +10,8 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 linked-hash-map = "0.5"
+
+
+[features]
+default = []
+stats = []

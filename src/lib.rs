@@ -5,9 +5,10 @@
 extern crate linked_hash_map;
 
 use std::borrow::Borrow;
-use std::cell::RefCell;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash};
+#[cfg(feature = "stats")]
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use linked_hash_map::LinkedHashMap;
@@ -32,12 +33,14 @@ impl<V> Entry<V> {
 }
 
 /// A time sensitive cache.
-#[derive(Clone)]
 pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
     map: LinkedHashMap<K, Entry<V>, S>,
     max_size: usize,
-    hits: RefCell<u32>,
-    misses: RefCell<u32>,
+    #[cfg(feature = "stats")]
+    hits: Mutex<usize>,
+    #[cfg(feature = "stats")]
+    misses: Mutex<usize>,
+    #[cfg(feature = "stats")]
     since: Instant,
 }
 
@@ -56,8 +59,11 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
         TtlCache {
             map: LinkedHashMap::new(),
             max_size: capacity,
-            hits: RefCell::new(0),
-            misses: RefCell::new(0),
+            #[cfg(feature = "stats")]
+            hits: Mutex::new(0),
+            #[cfg(feature = "stats")]
+            misses: Mutex::new(0),
+            #[cfg(feature = "stats")]
             since: Instant::now(),
         }
     }
@@ -70,8 +76,11 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         TtlCache {
             map: LinkedHashMap::with_hasher(hash_builder),
             max_size: capacity,
-            hits: RefCell::new(0),
-            misses: RefCell::new(0),
+            #[cfg(feature = "stats")]
+            hits: Mutex::new(0),
+            #[cfg(feature = "stats")]
+            misses: Mutex::new(0),
+            #[cfg(feature = "stats")]
             since: Instant::now(),
         }
     }
@@ -94,10 +103,15 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     {
         // Expiration check is handled by get_mut
         let to_ret = self.get_mut(key).is_some();
-        if to_ret {
-            self.hits.borrow_mut().saturating_add(1);
-        } else {
-            self.misses.borrow_mut().saturating_add(1);
+        #[cfg(feature = "stats")]
+        {
+            if to_ret {
+                let mut x = self.hits.lock().unwrap();
+                *x += 1;
+            } else {
+                let mut x = self.misses.lock().unwrap();
+                *x += 1;
+            }
         }
         to_ret
     }
@@ -155,12 +169,15 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         let to_ret = self.map
             .get(k)
             .and_then(|x| if x.is_expired() { None } else { Some(&x.value) });
-        if to_ret.is_some() {
-            let mut x = self.hits.borrow_mut();
-            (*x) += 1;
-        } else {
-            let mut x = self.misses.borrow_mut();
-            (*x) += 1;
+        #[cfg(feature = "stats")]
+        {
+            if to_ret.is_some() {
+                let mut x = self.hits.lock().unwrap();
+                *x += 1;
+            } else {
+                let mut x = self.misses.lock().unwrap();
+                *x += 1;
+            }
         }
         to_ret
     }
@@ -197,12 +214,15 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
                 Some(&mut x.value)
             }
         });
-        if to_ret.is_some() {
-            let mut x = self.hits.borrow_mut();
-            (*x) += 1;
-        } else {
-            let mut x = self.misses.borrow_mut();
-            (*x) += 1;
+        #[cfg(feature = "stats")]
+        {
+            if to_ret.is_some() {
+                let mut x = self.hits.lock().unwrap();
+                *x += 1;
+            } else {
+                let mut x = self.misses.lock().unwrap();
+                *x += 1;
+            }
         }
         to_ret
     }
@@ -372,9 +392,10 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.miss_count(), 2);
     /// cache.reset_stats_counter();
     /// assert_eq!(cache.miss_count(), 0);
+    #[cfg(feature = "stats")]
     pub fn reset_stats_counter(&mut self) {
-        *self.hits.borrow_mut() = 0;
-        *self.misses.borrow_mut() = 0;
+        *self.hits.lock().unwrap() = 0;
+        *self.misses.lock().unwrap() = 0;
         self.since = Instant::now();
     }
 
@@ -395,8 +416,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert!(cache.get_mut(&2).is_none());
     /// assert!(cache.get_mut(&3).is_none());
     /// assert_eq!(cache.hit_count(), 1);
-    pub fn hit_count(&self) -> u32 {
-        *self.hits.borrow()
+    #[cfg(feature = "stats")]
+    pub fn hit_count(&self) -> usize {
+        *self.hits.lock().unwrap()
     }
 
     /// Returns the number of cache misses since the last time the counters were reset.  Entries
@@ -417,12 +439,14 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// let _ = cache.get_mut(&2);
     /// let _ = cache.get_mut(&3);
     /// assert_eq!(cache.miss_count(), 2);
-    pub fn miss_count(&self) -> u32 {
-        *self.misses.borrow()
+    #[cfg(feature = "stats")]
+    pub fn miss_count(&self) -> usize {
+        *self.misses.lock().unwrap()
     }
 
     /// Returns the Instant when we started gathering stats.  This is either when the cache was
     /// created or when it was last reset, whichever happened most recently.
+    #[cfg(feature = "stats")]
     pub fn stats_since(&self) -> Instant {
         self.since
     }
@@ -447,6 +471,40 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
 
     fn remove_oldest(&mut self) -> Option<(K, V)> {
         self.map.pop_front().map(|x| (x.0, x.1.value))
+    }
+}
+
+#[cfg(feature = "stats")]
+impl<K: Eq + Hash, V> Clone for TtlCache<K, V>
+where
+    K: Clone,
+    V: Clone,
+{
+    fn clone(&self) -> TtlCache<K, V> {
+        let hits = self.hits.lock().unwrap();
+        let misses = self.misses.lock().unwrap();
+
+        TtlCache {
+            map: self.map.clone(),
+            max_size: self.max_size,
+            hits: Mutex::new(*hits),
+            misses: Mutex::new(*misses),
+            since: self.since,
+        }
+    }
+}
+
+#[cfg(not(feature = "stats"))]
+impl<K: Eq + Hash, V> Clone for TtlCache<K, V>
+where
+    K: Clone,
+    V: Clone,
+{
+    fn clone(&self) -> TtlCache<K, V> {
+        TtlCache {
+            map: self.map.clone(),
+            max_size: self.max_size.clone(),
+        }
     }
 }
 
