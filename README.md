@@ -5,4 +5,4 @@
 
 This crate provides a time sensitive key-value FIFO cache.  When the cache is created it is
 given a TTL.  Any value that are in the cache for longer than this duration are considered
-invalid and will not be returned.
+invalid and will not be returned.  Supports 1.20 +
