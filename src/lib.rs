@@ -93,16 +93,16 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// use ttl_cache::TtlCache;
     ///
     /// let mut cache = TtlCache::new(10);
-    /// cache.insert(1,"a", Duration::from_secs(30));
+    /// cache.insert(1, "a", Duration::from_secs(30));
     /// assert_eq!(cache.contains_key(&1), true);
     /// ```
-    pub fn contains_key<Q: ?Sized>(&mut self, key: &Q) -> bool
+    pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        // Expiration check is handled by get_mut
-        self.get_mut(key).is_some()
+        // Expiration check is handled by get
+        self.get(key).is_some()
     }
 
     /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key
