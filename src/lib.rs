@@ -8,7 +8,7 @@ use std::borrow::Borrow;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash};
 #[cfg(feature = "stats")]
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use linked_hash_map::LinkedHashMap;
@@ -37,9 +37,9 @@ pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
     map: LinkedHashMap<K, Entry<V>, S>,
     max_size: usize,
     #[cfg(feature = "stats")]
-    hits: Mutex<usize>,
+    hits: AtomicUsize,
     #[cfg(feature = "stats")]
-    misses: Mutex<usize>,
+    misses: AtomicUsize,
     #[cfg(feature = "stats")]
     since: Instant,
 }
@@ -60,9 +60,9 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
             map: LinkedHashMap::new(),
             max_size: capacity,
             #[cfg(feature = "stats")]
-            hits: Mutex::new(0),
+            hits: AtomicUsize::new(0),
             #[cfg(feature = "stats")]
-            misses: Mutex::new(0),
+            misses: AtomicUsize::new(0),
             #[cfg(feature = "stats")]
             since: Instant::now(),
         }
@@ -77,9 +77,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
             map: LinkedHashMap::with_hasher(hash_builder),
             max_size: capacity,
             #[cfg(feature = "stats")]
-            hits: Mutex::new(0),
+            hits: AtomicUsize::new(0),
             #[cfg(feature = "stats")]
-            misses: Mutex::new(0),
+            misses: AtomicUsize::new(0),
             #[cfg(feature = "stats")]
             since: Instant::now(),
         }
@@ -106,11 +106,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         #[cfg(feature = "stats")]
         {
             if to_ret {
-                let mut x = self.hits.lock().unwrap();
-                *x += 1;
+                self.hits.fetch_add(1, Ordering::Relaxed);
             } else {
-                let mut x = self.misses.lock().unwrap();
-                *x += 1;
+                self.misses.fetch_add(1, Ordering::Relaxed);
             }
         }
         to_ret
@@ -172,11 +170,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         #[cfg(feature = "stats")]
         {
             if to_ret.is_some() {
-                let mut x = self.hits.lock().unwrap();
-                *x += 1;
+                self.hits.fetch_add(1, Ordering::Relaxed);
             } else {
-                let mut x = self.misses.lock().unwrap();
-                *x += 1;
+                self.misses.fetch_add(1, Ordering::Relaxed);
             }
         }
         to_ret
@@ -217,11 +213,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         #[cfg(feature = "stats")]
         {
             if to_ret.is_some() {
-                let mut x = self.hits.lock().unwrap();
-                *x += 1;
+                self.hits.fetch_add(1, Ordering::Relaxed);
             } else {
-                let mut x = self.misses.lock().unwrap();
-                *x += 1;
+                self.misses.fetch_add(1, Ordering::Relaxed);
             }
         }
         to_ret
@@ -394,8 +388,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.miss_count(), 0);
     #[cfg(feature = "stats")]
     pub fn reset_stats_counter(&mut self) {
-        *self.hits.lock().unwrap() = 0;
-        *self.misses.lock().unwrap() = 0;
+        self.hits = AtomicUsize::new(0);
+        self.misses = AtomicUsize::new(0);
         self.since = Instant::now();
     }
 
@@ -418,7 +412,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.hit_count(), 1);
     #[cfg(feature = "stats")]
     pub fn hit_count(&self) -> usize {
-        *self.hits.lock().unwrap()
+        self.hits.load(Ordering::Relaxed)
     }
 
     /// Returns the number of cache misses since the last time the counters were reset.  Entries
@@ -441,7 +435,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.miss_count(), 2);
     #[cfg(feature = "stats")]
     pub fn miss_count(&self) -> usize {
-        *self.misses.lock().unwrap()
+        self.misses.load(Ordering::Relaxed)
     }
 
     /// Returns the Instant when we started gathering stats.  This is either when the cache was
@@ -474,36 +468,21 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     }
 }
 
-#[cfg(feature = "stats")]
 impl<K: Eq + Hash, V> Clone for TtlCache<K, V>
 where
     K: Clone,
     V: Clone,
 {
     fn clone(&self) -> TtlCache<K, V> {
-        let hits = self.hits.lock().unwrap();
-        let misses = self.misses.lock().unwrap();
-
         TtlCache {
             map: self.map.clone(),
             max_size: self.max_size,
-            hits: Mutex::new(*hits),
-            misses: Mutex::new(*misses),
+            #[cfg(feature = "stats")]
+            hits: AtomicUsize::new(self.hits.load(Ordering::Relaxed)),
+            #[cfg(feature = "stats")]
+            misses: AtomicUsize::new(self.misses.load(Ordering::Relaxed)),
+            #[cfg(feature = "stats")]
             since: self.since,
-        }
-    }
-}
-
-#[cfg(not(feature = "stats"))]
-impl<K: Eq + Hash, V> Clone for TtlCache<K, V>
-where
-    K: Clone,
-    V: Clone,
-{
-    fn clone(&self) -> TtlCache<K, V> {
-        TtlCache {
-            map: self.map.clone(),
-            max_size: self.max_size.clone(),
         }
     }
 }
