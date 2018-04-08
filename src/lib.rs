@@ -129,8 +129,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     ///
     /// cache.insert(1, "a", Duration::from_secs(20));
     /// cache.insert(2, "b", Duration::from_secs(60));
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
+    /// assert_eq!(cache.get(&1), Some(&"a"));
+    /// assert_eq!(cache.get(&2), Some(&"b"));
     /// ```
     pub fn insert(&mut self, k: K, v: V, ttl: Duration) -> Option<V> {
         let to_insert = Entry::new(v, ttl);
@@ -284,23 +284,23 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.insert(2, "b", duration);
     /// cache.insert(3, "c", duration);
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_capacity(3);
     /// cache.insert(1, "a", duration);
     /// cache.insert(2, "b", duration);
     ///
-    /// assert_eq!(cache.get_mut(&1), Some(&mut "a"));
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), Some(&"a"));
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), Some(&"c"));
     ///
     /// cache.set_capacity(1);
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "b"));
-    /// assert_eq!(cache.get_mut(&3), None);
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"b"));
+    /// assert_eq!(cache.get(&3), None);
     /// ```
     pub fn set_capacity(&mut self, capacity: usize) {
         for _ in capacity..self.len() {
@@ -364,8 +364,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// }
     ///
     /// assert_eq!(n, 4);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut 200));
-    /// assert_eq!(cache.get_mut(&3), Some(&mut 300));
+    /// assert_eq!(cache.get(&2), Some(&200));
+    /// assert_eq!(cache.get(&3), Some(&300));
     /// ```
     pub fn iter_mut(&mut self) -> IterMut<K, V> {
         self.remove_expired();
@@ -386,9 +386,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.insert(1, "a", Duration::from_secs(20));
     /// cache.insert(2, "b", Duration::from_millis(1));
     /// sleep(Duration::from_millis(10));
-    /// let _ = cache.get_mut(&1);
-    /// let _ = cache.get_mut(&2);
-    /// let _ = cache.get_mut(&3);
+    /// let _ = cache.get(&1);
+    /// let _ = cache.get(&2);
+    /// let _ = cache.get(&3);
     /// assert_eq!(cache.miss_count(), 2);
     /// cache.reset_stats_counter();
     /// assert_eq!(cache.miss_count(), 0);
@@ -412,9 +412,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.insert(1, "a", Duration::from_secs(20));
     /// cache.insert(2, "b", Duration::from_millis(1));
     /// sleep(Duration::from_millis(10));
-    /// assert!(cache.get_mut(&1).is_some());
-    /// assert!(cache.get_mut(&2).is_none());
-    /// assert!(cache.get_mut(&3).is_none());
+    /// assert!(cache.get(&1).is_some());
+    /// assert!(cache.get(&2).is_none());
+    /// assert!(cache.get(&3).is_none());
     /// assert_eq!(cache.hit_count(), 1);
     #[cfg(feature = "stats")]
     pub fn hit_count(&self) -> usize {
@@ -435,9 +435,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.insert(1, "a", Duration::from_secs(20));
     /// cache.insert(2, "b", Duration::from_millis(1));
     /// sleep(Duration::from_millis(10));
-    /// let _ = cache.get_mut(&1);
-    /// let _ = cache.get_mut(&2);
-    /// let _ = cache.get_mut(&3);
+    /// let _ = cache.get(&1);
+    /// let _ = cache.get(&2);
+    /// let _ = cache.get(&3);
     /// assert_eq!(cache.miss_count(), 2);
     #[cfg(feature = "stats")]
     pub fn miss_count(&self) -> usize {
