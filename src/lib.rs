@@ -158,8 +158,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// cache.insert(2, "c", duration);
     /// cache.insert(3, "d", duration);
     ///
-    /// assert_eq!(cache.get_mut(&1), None);
-    /// assert_eq!(cache.get_mut(&2), Some(&mut "c"));
+    /// assert_eq!(cache.get(&1), None);
+    /// assert_eq!(cache.get(&2), Some(&"c"));
     /// ```
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
     where
