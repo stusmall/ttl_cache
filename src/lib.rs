@@ -102,16 +102,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         Q: Hash + Eq,
     {
         // Expiration check is handled by get_mut
-        let to_ret = self.get_mut(key).is_some();
-        #[cfg(feature = "stats")]
-        {
-            if to_ret {
-                self.hits.fetch_add(1, Ordering::Relaxed);
-            } else {
-                self.misses.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        to_ret
+        self.get_mut(key).is_some()
     }
 
     /// Inserts a key-value pair into the cache with an individual ttl for the key. If the key
