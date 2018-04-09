@@ -454,8 +454,8 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         }
     }
 
-    fn remove_oldest(&mut self) -> Option<(K, V)> {
-        self.map.pop_front().map(|x| (x.0, x.1.value))
+    fn remove_oldest(&mut self) {
+        self.map.pop_front();
     }
 }
 
