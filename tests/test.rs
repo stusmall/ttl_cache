@@ -10,8 +10,28 @@ fn test_put_and_get() {
     let mut cache = TtlCache::new(2);
     cache.insert(1, 10, duration);
     cache.insert(2, 20, duration);
+    assert_eq!(cache.get(&1), Some(&10));
+    assert_eq!(cache.get(&2), Some(&20));
+}
+
+#[test]
+fn test_put_and_get_mut() {
+    let duration = Duration::from_secs(60 * 60);
+    let mut cache = TtlCache::new(2);
+    cache.insert(1, 10, duration);
+    cache.insert(2, 20, duration);
     assert_eq!(cache.get_mut(&1), Some(&mut 10));
     assert_eq!(cache.get_mut(&2), Some(&mut 20));
+}
+
+#[test]
+fn test_get_mut_change() {
+    let duration = Duration::from_secs(60 * 60);
+    let mut cache = TtlCache::new(2);
+    cache.insert(1, 10, duration);
+    assert_eq!(cache.get(&1), Some(&10));
+    cache.get_mut(&1).map(|v| *v = 20);
+    assert_eq!(cache.get(&1), Some(&20));
 }
 
 #[test]
@@ -20,7 +40,7 @@ fn test_put_update() {
     let mut cache = TtlCache::new(1);
     cache.insert("1", 10, duration);
     cache.insert("1", 19, duration);
-    assert_eq!(cache.get_mut("1"), Some(&mut 19));
+    assert_eq!(cache.get("1"), Some(&19));
 }
 
 #[test]
@@ -49,7 +69,7 @@ fn test_pop() {
     let opt1 = cache.remove(&1);
     assert!(opt1.is_some());
     assert_eq!(opt1.unwrap(), 10);
-    assert!(cache.get_mut(&1).is_none());
+    assert!(cache.get(&1).is_none());
 }
 
 #[test]
@@ -60,7 +80,7 @@ fn test_change_capacity() {
     cache.insert(1, 10, duration);
     cache.insert(2, 20, duration);
     cache.set_capacity(1);
-    assert!(cache.get_mut(&1).is_none());
+    assert!(cache.get(&1).is_none());
     assert_eq!(cache.capacity(), 1);
 }
 
@@ -75,15 +95,15 @@ fn test_remove() {
     cache.insert(5, 50, duration);
     cache.remove(&3);
     cache.remove(&4);
-    assert!(cache.get_mut(&3).is_none());
-    assert!(cache.get_mut(&4).is_none());
+    assert!(cache.get(&3).is_none());
+    assert!(cache.get(&4).is_none());
     cache.insert(6, 60, duration);
     cache.insert(7, 70, duration);
     cache.insert(8, 80, duration);
-    assert!(cache.get_mut(&5).is_none());
-    assert_eq!(cache.get_mut(&6), Some(&mut 60));
-    assert_eq!(cache.get_mut(&7), Some(&mut 70));
-    assert_eq!(cache.get_mut(&8), Some(&mut 80));
+    assert!(cache.get(&5).is_none());
+    assert_eq!(cache.get(&6), Some(&60));
+    assert_eq!(cache.get(&7), Some(&70));
+    assert_eq!(cache.get(&8), Some(&80));
 }
 
 #[test]
@@ -93,8 +113,8 @@ fn test_clear() {
     cache.insert(1, 10, duration);
     cache.insert(2, 20, duration);
     cache.clear();
-    assert!(cache.get_mut(&1).is_none());
-    assert!(cache.get_mut(&2).is_none());
+    assert!(cache.get(&1).is_none());
+    assert!(cache.get(&2).is_none());
 }
 
 #[test]
