@@ -141,7 +141,6 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::time::Duration;
     /// use ttl_cache::TtlCache;
     ///
     /// let mut cache: TtlCache<i32, &str> = TtlCache::new(10);
@@ -162,7 +161,7 @@ impl<K: Eq + Hash, V> TtlCache<K, V> {
 
 impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// Creates an empty cache that can hold at most `capacity` items
-    /// that expire after `duration` with the given hash builder.
+    /// with the given hash builder.
     pub fn with_hasher(capacity: usize, hash_builder: S) -> Self {
         TtlCache {
             map: LinkedHashMap::with_hasher(hash_builder),
