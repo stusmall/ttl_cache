@@ -5,36 +5,169 @@
 extern crate linked_hash_map;
 
 use std::borrow::Borrow;
+use std::cmp;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash};
+use std::mem;
 #[cfg(feature = "stats")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use linked_hash_map::LinkedHashMap;
 
-#[derive(Clone)]
-struct Entry<V> {
-    value: V,
+/// A time sensitive value.
+#[derive(Debug, Clone, Copy, Eq, Ord)]
+pub struct TtlValue<T> {
+    value: T,
     expiration: Instant,
 }
 
-impl<V> Entry<V> {
-    fn new(v: V, duration: Duration) -> Self {
-        Entry {
-            value: v,
-            expiration: Instant::now() + duration,
+impl<T> TtlValue<T> {
+    /// Create a new time sensitive value which expires at `expiration`.
+    pub fn new(value: T, expiration: Instant) -> Self {
+        TtlValue {
+            value: value,
+            expiration: expiration
         }
     }
 
-    fn is_expired(&self) -> bool {
+    /// Create a new time sensitive value which exists for the `duration`.
+    pub fn new_duration(value: T, duration: Duration) -> Self {
+        Self::new(value, Instant::now() + duration)
+    }
+
+    /// Whether the value has expired or not.
+    ///
+    /// Note that there is a TOCTOU (time-of-check, time-of-use) race when using this function.
+    pub fn is_expired(&self) -> bool {
         Instant::now() > self.expiration
+    }
+
+    /// Update the expiration of the value.
+    pub fn update_expiration(&mut self, expiration: Instant) {
+        self.expiration = expiration;
+    }
+
+    /// Update the value and expiration.
+    ///
+    /// Returns the old value if it had not expired.
+    pub fn update(&mut self, value: T, expiration: Instant) -> Option<T> {
+        let old_value = if self.is_expired() {
+            self.value = value;
+            None
+        } else {
+            let old_value = mem::replace(&mut self.value, value);
+            Some(old_value)
+        };
+        self.expiration = expiration;
+        old_value
+    }
+
+    /// Extracts the value if it is still valid.
+    pub fn into_inner(self) -> Option<T> {
+        if self.is_expired() {
+            None
+        } else {
+            Some(self.value)
+        }
+    }
+
+    /// Get a reference to the value if it is still valid.
+    pub fn as_ref(&self) -> Option<&T> {
+        if self.is_expired() {
+            None
+        } else {
+            Some(&self.value)
+        }
+    }
+
+    /// Get a reference to the value if it is still valid or an update it if not.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the new expiration has already elapsed.
+    pub fn as_ref_or_update<F>(&mut self, f: F) -> &T
+    where
+        F: FnOnce() -> (T, Instant),
+    {
+        if self.is_expired() {
+            let (value, expiration) = f();
+            self.value = value;
+            self.expiration = expiration;
+            assert!(!self.is_expired());
+        }
+
+        &self.value
+    }
+
+    /// Get a mutable reference to the value if it is still valid.
+    pub fn as_mut(&mut self) -> Option<&mut T> {
+        if self.is_expired() {
+            None
+        } else {
+            Some(&mut self.value)
+        }
+    }
+
+    /// Get a mutable reference to the value if it is still valid or an update it if not.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the new expiration has already elapsed.
+    pub fn as_mut_or_update<F>(&mut self, f: F) -> &mut T
+    where
+        F: FnOnce() -> (T, Instant),
+    {
+        if self.is_expired() {
+            let (value, expiration) = f();
+            self.value = value;
+            self.expiration = expiration;
+            assert!(!self.is_expired());
+        }
+
+        &mut self.value
+    }
+}
+
+impl<T> PartialEq<Self> for TtlValue<T>
+where
+    T: PartialEq<T>,
+{
+    fn eq(&self, other: &TtlValue<T>) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
+impl<T> PartialEq<T> for TtlValue<T>
+where
+    T: PartialEq<T>,
+{
+    fn eq(&self, other: &T) -> bool {
+        self.as_ref() == Some(other)
+    }
+}
+
+impl<T> PartialOrd<Self> for TtlValue<T>
+where
+    T: PartialOrd<T>,
+{
+    fn partial_cmp(&self, other: &TtlValue<T>) -> Option<cmp::Ordering> {
+        self.as_ref().partial_cmp(&other.as_ref())
+    }
+}
+
+impl<T> PartialOrd<T> for TtlValue<T>
+where
+    T: PartialOrd<T>,
+{
+    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
+        self.as_ref().partial_cmp(&Some(other))
     }
 }
 
 /// A time sensitive cache.
 pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
-    map: LinkedHashMap<K, Entry<V>, S>,
+    map: LinkedHashMap<K, TtlValue<V>, S>,
     max_size: usize,
     #[cfg(feature = "stats")]
     hits: AtomicUsize,
@@ -121,7 +254,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.get(&2), Some(&"b"));
     /// ```
     pub fn insert(&mut self, k: K, v: V, ttl: Duration) -> Option<V> {
-        let to_insert = Entry::new(v, ttl);
+        let to_insert = TtlValue::new_duration(v, ttl);
         let old_val = self.map.insert(k, to_insert);
         if self.len() > self.capacity() {
             self.remove_oldest();
@@ -444,7 +577,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     }
 
     fn remove_expired(&mut self) {
-        let should_pop_head = |map: &LinkedHashMap<K, Entry<V>, S>| match map.front() {
+        let should_pop_head = |map: &LinkedHashMap<K, TtlValue<V>, S>| match map.front() {
             Some(entry) => entry.1.is_expired(),
             None => false,
         };
@@ -477,7 +610,7 @@ where
     }
 }
 
-pub struct Iter<'a, K: 'a, V: 'a>(linked_hash_map::Iter<'a, K, Entry<V>>);
+pub struct Iter<'a, K: 'a, V: 'a>(linked_hash_map::Iter<'a, K, TtlValue<V>>);
 
 impl<'a, K, V> Clone for Iter<'a, K, V> {
     fn clone(&self) -> Iter<'a, K, V> {
@@ -523,7 +656,7 @@ impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V> {
     }
 }
 
-pub struct IterMut<'a, K: 'a, V: 'a>(linked_hash_map::IterMut<'a, K, Entry<V>>);
+pub struct IterMut<'a, K: 'a, V: 'a>(linked_hash_map::IterMut<'a, K, TtlValue<V>>);
 
 impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
