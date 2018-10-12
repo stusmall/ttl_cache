@@ -63,6 +63,18 @@ impl<T> TtlValue<T> {
         old_value
     }
 
+    /// Update the value and expiration returning the new inner value.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the new expiration has already elapsed.
+    pub fn update_ref(&mut self, value: T, expiration: Instant) -> &mut T {
+        mem::replace(&mut self.value, value);
+        self.expiration = expiration;
+        assert!(!self.is_expired());
+        &mut self.value
+    }
+
     /// Extracts the value if it is still valid.
     pub fn into_inner(self) -> Option<T> {
         if self.is_expired() {
