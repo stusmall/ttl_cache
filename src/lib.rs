@@ -65,6 +65,12 @@ impl<'a, K: Hash + Eq, V, S: BuildHasher> OccupiedEntry<'a, K, V, S> {
     pub fn get_mut(&mut self) -> &mut V {
         &mut self.entry.get_mut().value
     }
+
+    /// Sets the value of the entry, and returns the entry's old value
+    pub fn insert(&mut self, value: V, duration: Duration) -> V {
+        let internal_entry = self.entry.insert(InternalEntry::new(value, duration));
+        internal_entry.value
+    }
 }
 
 
