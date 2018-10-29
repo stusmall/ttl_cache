@@ -12,16 +12,96 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use linked_hash_map::LinkedHashMap;
+use linked_hash_map::Entry as LinkedHashMapEntry;
+use linked_hash_map::OccupiedEntry as OccupiedLinkHashMapEntry;
+use linked_hash_map::VacantEntry as VacantLinkHashMapEntry;
+
+/// A view into a single location in a map, which may be vacant or occupied.
+pub enum Entry<'a, K: 'a, V: 'a, S: 'a = RandomState> {
+    /// An occupied Entry.
+    Occupied(OccupiedEntry<'a, K, V, S>),
+    /// A vacant Entry.
+    Vacant(VacantEntry<'a, K, V, S>),
+}
+
+impl<'a, K: Hash + Eq, V, S: BuildHasher> Entry<'a, K, V, S> {
+    pub fn key(&self) -> &K {
+        match *self {
+            Entry::Occupied(ref e) => e.key(),
+            Entry::Vacant(ref e) => e.key(),
+        }
+    }
+}
+
+/// A view into a single occupied location in the cache that was unexpired at the moment of lookup.
+pub struct OccupiedEntry<'a, K: 'a, V: 'a, S: 'a = RandomState> {
+    entry: OccupiedLinkHashMapEntry<'a, K, InternalEntry<V>, S>
+}
+
+impl<'a, K: Hash + Eq, V, S: BuildHasher> OccupiedEntry<'a, K, V, S> {
+    /// Gets a reference to the entry key
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut map = TtlCache::new(10);
+    ///
+    /// map.insert("foo".to_string(), 1, Duration::from_secs(30));
+    /// assert_eq!("foo", map.entry("foo".to_string()).key());
+    /// ```
+    pub fn key(&self) -> &K {
+        self.entry.key()
+    }
+
+    /// Gets a reference to the value in the entry.
+    pub fn get(&self) -> &V {
+        &self.entry.get().value
+    }
+}
+
+
+
+/// A view into a single empty location in the cache
+pub struct VacantEntry<'a, K: 'a, V: 'a, S: 'a = RandomState> {
+    entry: VacantLinkHashMapEntry<'a, K, InternalEntry<V>, S>
+}
+
+impl<'a, K: 'a + Hash + Eq, V: 'a, S: BuildHasher> VacantEntry<'a, K, V, S> {
+    /// Gets a reference to the entry key
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ttl_cache::TtlCache;
+    ///
+    /// let mut map = TtlCache::<String, u32>::new(10);
+    ///
+    /// assert_eq!("foo", map.entry("foo".to_string()).key());
+    /// ```
+    pub fn key(&self) -> &K {
+        self.entry.key()
+    }
+
+    /// Sets the value of the entry with the VacantEntry's key,
+    /// and returns a mutable reference to it
+    pub fn insert(self, value: V, duration: Duration) -> &'a mut V {
+        let internal_entry = self.entry.insert(InternalEntry::new(value, duration));
+        &mut internal_entry.value
+    }
+}
 
 #[derive(Clone)]
-struct Entry<V> {
+struct InternalEntry<V> {
     value: V,
     expiration: Instant,
 }
 
-impl<V> Entry<V> {
+impl<V> InternalEntry<V> {
     fn new(v: V, duration: Duration) -> Self {
-        Entry {
+        InternalEntry {
             value: v,
             expiration: Instant::now() + duration,
         }
@@ -34,7 +114,7 @@ impl<V> Entry<V> {
 
 /// A time sensitive cache.
 pub struct TtlCache<K: Eq + Hash, V, S: BuildHasher = RandomState> {
-    map: LinkedHashMap<K, Entry<V>, S>,
+    map: LinkedHashMap<K, InternalEntry<V>, S>,
     max_size: usize,
     #[cfg(feature = "stats")]
     hits: AtomicUsize,
@@ -122,7 +202,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     /// assert_eq!(cache.get(&2), Some(&"b"));
     /// ```
     pub fn insert(&mut self, k: K, v: V, ttl: Duration) -> Option<V> {
-        let to_insert = Entry::new(v, ttl);
+        let to_insert = InternalEntry::new(v, ttl);
         let old_val = self.map.insert(k, to_insert);
         if self.len() > self.capacity() {
             self.remove_oldest();
@@ -299,6 +379,22 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         self.map.clear();
     }
 
+
+    pub fn entry(&mut self, k: K) -> Entry<K, V, S> {
+        match self.map.entry(k){
+            LinkedHashMapEntry::Occupied(entry) => {
+                Entry::Occupied(OccupiedEntry{
+                    entry
+                })
+            }
+            LinkedHashMapEntry::Vacant(entry) => {
+                Entry::Vacant(VacantEntry{
+                    entry
+                })
+            }
+        }
+    }
+
     /// Returns an iterator over the cache's key-value pairs in oldest to youngest order.
     ///
     /// # Examples
@@ -445,7 +541,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     }
 
     fn remove_expired(&mut self) {
-        let should_pop_head = |map: &LinkedHashMap<K, Entry<V>, S>| match map.front() {
+        let should_pop_head = |map: &LinkedHashMap<K, InternalEntry<V>, S>| match map.front() {
             Some(entry) => entry.1.is_expired(),
             None => false,
         };
@@ -478,7 +574,7 @@ where
     }
 }
 
-pub struct Iter<'a, K: 'a, V: 'a>(linked_hash_map::Iter<'a, K, Entry<V>>);
+pub struct Iter<'a, K: 'a, V: 'a>(linked_hash_map::Iter<'a, K, InternalEntry<V>>);
 
 impl<'a, K, V> Clone for Iter<'a, K, V> {
     fn clone(&self) -> Iter<'a, K, V> {
@@ -524,7 +620,7 @@ impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V> {
     }
 }
 
-pub struct IterMut<'a, K: 'a, V: 'a>(linked_hash_map::IterMut<'a, K, Entry<V>>);
+pub struct IterMut<'a, K: 'a, V: 'a>(linked_hash_map::IterMut<'a, K, InternalEntry<V>>);
 
 impl<'a, K, V> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
