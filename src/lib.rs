@@ -60,6 +60,11 @@ impl<'a, K: Hash + Eq, V, S: BuildHasher> OccupiedEntry<'a, K, V, S> {
     pub fn get(&self) -> &V {
         &self.entry.get().value
     }
+
+    /// Gets a mutable reference to the value in the entry.
+    pub fn get_mut(&mut self) -> &mut V {
+        &mut self.entry.get_mut().value
+    }
 }
 
 
