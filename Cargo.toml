@@ -1,6 +1,6 @@
 [package]
 name = "ttl_cache"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Stu Small <stuart.alan.small@gmail.com>"]
 description = "A cache that will expire values after a TTL"
 repository = "https://github.com/stusmall/ttl_cache"
