@@ -392,9 +392,13 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
 
 
     pub fn entry(&mut self, k: K) -> Entry<K, V, S> {
+        let should_remove = self.map.get(&k).map(|value| value.is_expired()).unwrap_or(false);
+        if should_remove {
+            self.map.remove(&k);
+        }
         match self.map.entry(k){
             LinkedHashMapEntry::Occupied(entry) => {
-                Entry::Occupied(OccupiedEntry{
+                Entry::Occupied(OccupiedEntry {
                     entry
                 })
             }
