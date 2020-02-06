@@ -11,8 +11,8 @@ use std::hash::{BuildHasher, Hash};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use linked_hash_map::LinkedHashMap;
 use linked_hash_map::Entry as LinkedHashMapEntry;
+use linked_hash_map::LinkedHashMap;
 use linked_hash_map::OccupiedEntry as OccupiedLinkHashMapEntry;
 use linked_hash_map::VacantEntry as VacantLinkHashMapEntry;
 
@@ -35,7 +35,7 @@ impl<'a, K: Hash + Eq, V, S: BuildHasher> Entry<'a, K, V, S> {
 
 /// A view into a single occupied location in the cache that was unexpired at the moment of lookup.
 pub struct OccupiedEntry<'a, K: 'a, V: 'a, S: 'a = RandomState> {
-    entry: OccupiedLinkHashMapEntry<'a, K, InternalEntry<V>, S>
+    entry: OccupiedLinkHashMapEntry<'a, K, InternalEntry<V>, S>,
 }
 
 impl<'a, K: Hash + Eq, V, S: BuildHasher> OccupiedEntry<'a, K, V, S> {
@@ -73,11 +73,9 @@ impl<'a, K: Hash + Eq, V, S: BuildHasher> OccupiedEntry<'a, K, V, S> {
     }
 }
 
-
-
 /// A view into a single empty location in the cache
 pub struct VacantEntry<'a, K: 'a, V: 'a, S: 'a = RandomState> {
-    entry: VacantLinkHashMapEntry<'a, K, InternalEntry<V>, S>
+    entry: VacantLinkHashMapEntry<'a, K, InternalEntry<V>, S>,
 }
 
 impl<'a, K: 'a + Hash + Eq, V: 'a, S: BuildHasher> VacantEntry<'a, K, V, S> {
@@ -245,7 +243,9 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        let to_ret = self.map
+        #[allow(clippy::let_and_return)]
+        let to_ret = self
+            .map
             .get(k)
             .and_then(|x| if x.is_expired() { None } else { Some(&x.value) });
         #[cfg(feature = "stats")]
@@ -284,6 +284,7 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
+        #[warn(clippy::let_and_return)]
         let to_ret = self.map.get_mut(k).and_then(|x| {
             if x.is_expired() {
                 None
@@ -389,23 +390,18 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         self.map.clear();
     }
 
-
     pub fn entry(&mut self, k: K) -> Entry<K, V, S> {
-        let should_remove = self.map.get(&k).map(|value| value.is_expired()).unwrap_or(false);
+        let should_remove = self
+            .map
+            .get(&k)
+            .map(|value| value.is_expired())
+            .unwrap_or(false);
         if should_remove {
             self.map.remove(&k);
         }
-        match self.map.entry(k){
-            LinkedHashMapEntry::Occupied(entry) => {
-                Entry::Occupied(OccupiedEntry {
-                    entry
-                })
-            }
-            LinkedHashMapEntry::Vacant(entry) => {
-                Entry::Vacant(VacantEntry{
-                    entry
-                })
-            }
+        match self.map.entry(k) {
+            LinkedHashMapEntry::Occupied(entry) => Entry::Occupied(OccupiedEntry { entry }),
+            LinkedHashMapEntry::Vacant(entry) => Entry::Vacant(VacantEntry { entry }),
         }
     }
 
