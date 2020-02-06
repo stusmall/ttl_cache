@@ -1,7 +1,8 @@
 //! This crate provides a time sensitive key-value cache.  When an item is inserted it is
 //! given a TTL.  Any value that are in the cache after their duration are considered invalid
-//! and will not be returned on lookups.
-
+//! and will not be returned on lookups.  Entries are not removed from the cache on expiration.
+//! Instead the expired values are removed opportunistically as they are reference or if
+//! `remove_expired` is explicitly called.
 extern crate linked_hash_map;
 
 use std::borrow::Borrow;
@@ -463,6 +464,22 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
         IterMut(self.map.iter_mut())
     }
 
+    /// This will evict all expired records in the cache.  Typically expired values will remain in
+    /// cache until they are accessed and then they are cleaned up.   Calling `remove_expired`
+    /// will have no impact on what values we can access in the cache, it will only hurry up the
+    /// removal of expired values.  One reason why you would want to call this is if the values
+    /// stored in the cache implement Drop and you want to trigger that behavior (i.e. free up file
+    /// handles sooner).
+    pub fn remove_expired(&mut self) {
+        let should_pop_head = |map: &LinkedHashMap<K, InternalEntry<V>, S>| match map.front() {
+            Some(entry) => entry.1.is_expired(),
+            None => false,
+        };
+        while should_pop_head(&self.map) {
+            self.map.pop_front();
+        }
+    }
+
     /// The cache will keep track of some basic stats during its usage that can be helpful
     /// for performance tuning or monitoring.  This method will reset these counters.
     /// # Examples
@@ -548,16 +565,6 @@ impl<K: Eq + Hash, V, S: BuildHasher> TtlCache<K, V, S> {
     // to change the contents of the structure.
     fn len(&self) -> usize {
         self.map.len()
-    }
-
-    fn remove_expired(&mut self) {
-        let should_pop_head = |map: &LinkedHashMap<K, InternalEntry<V>, S>| match map.front() {
-            Some(entry) => entry.1.is_expired(),
-            None => false,
-        };
-        while should_pop_head(&self.map) {
-            self.map.pop_front();
-        }
     }
 
     fn remove_oldest(&mut self) {
