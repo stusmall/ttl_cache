@@ -1,6 +1,6 @@
 # ttl_cache
 
-![build](https://github.com/stusmall/ttl_cache/workflows/build/badge.svg)
+[![Actions Status](https://github.com/stusmall/ttl_cache/workflows/build/badge.svg)](https://github.com/stusmall/ttl_cache/actions)
 [![Documentation](https://docs.rs/ttl_cache/badge.svg)](https://docs.rs/ttl_cache)
 
 This crate provides a time sensitive key-value FIFO cache.  When the cache is created it is
